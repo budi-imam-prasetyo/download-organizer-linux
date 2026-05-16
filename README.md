@@ -61,6 +61,26 @@ Secara default script melewati file yang dimodifikasi dalam 10 menit terakhir ag
 ./organize-downloads.sh --min-age-minutes 30
 ```
 
+## Shortcut Terminal
+
+Jika shortcut sudah ditambahkan ke `~/.zshrc`, buka terminal baru atau jalankan:
+
+```sh
+source ~/.zshrc
+```
+
+Preview tanpa memindahkan file:
+
+```sh
+downloads-preview
+```
+
+Jalankan organizer:
+
+```sh
+downloads-organize
+```
+
 ## Install Automation macOS
 
 Pastikan script executable:
