@@ -72,13 +72,13 @@ source ~/.zshrc
 Preview tanpa memindahkan file:
 
 ```sh
-downloads-preview
+d-p
 ```
 
 Jalankan organizer:
 
 ```sh
-downloads-organize
+d-o
 ```
 
 ## Install Automation macOS
