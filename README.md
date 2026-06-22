@@ -2,7 +2,7 @@
 
 Script Bash untuk merapikan folder `Downloads` di macOS secara otomatis. File baru tetap masuk ke root `Downloads`; organizer berjalan harian, memindahkan file lepas berdasarkan ekstensi, dan tidak menyentuh subfolder yang sudah ada.
 
-> Hanya untuk macOS — automation menggunakan `launchd`.
+> Hanya untuk macOS. Bisa dijalankan manual lewat terminal, atau terjadwal otomatis menggunakan `launchd`.
 
 ---
 
@@ -111,9 +111,11 @@ Contoh testing dengan folder lain:
 
 ---
 
-## Automation — macOS
+## Automation — macOS (Opsional)
 
-Gunakan `launchd` agar organizer berjalan otomatis setiap hari pukul 06:00.
+Gunakan `launchd` agar organizer berjalan terjadwal otomatis setiap hari pukul 06:00 tanpa perlu membuka terminal.
+
+> **Catatan:** macOS akan meminta izin akses di **System Settings → Privacy & Security** saat pertama kali script dijalankan oleh `launchd`. Jika tidak ingin memberikan izin tersebut, cukup gunakan cara manual lewat terminal di atas — hasilnya sama persis.
 
 **Install:**
 
