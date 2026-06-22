@@ -102,6 +102,7 @@ d-o
 | `--dry-run` | — | Preview tanpa memindahkan file |
 | `--downloads-dir PATH` | `~/Downloads` | Ganti folder target |
 | `--min-age-minutes N` | `10` | Lewati file yang baru dimodifikasi dalam N menit terakhir |
+| `--keep-logs-months N` | `3` | Hapus log lebih lama dari N bulan. Set `0` untuk nonaktifkan |
 
 Contoh testing dengan folder lain:
 
@@ -152,4 +153,5 @@ rm ~/Library/LaunchAgents/com.maulana.download-organizer.plist
 - Tidak ada file yang dihapus — hanya dipindahkan.
 - Subfolder di root `Downloads` tidak disentuh.
 - Jika nama file tujuan sudah ada, script menambahkan nomor: `file (1).pdf`.
-- Semua aksi dicatat di `logs/organize-YYYY-MM.log` dan `logs/rename-map.csv`.
+- Aksi dicatat di `logs/organize-YYYY-MM.log` — log lebih lama dari 3 bulan dihapus otomatis setiap kali script dijalankan.
+- Riwayat lengkap pemindahan tersimpan di `logs/rename-map.csv` dan tidak ikut dihapus otomatis.

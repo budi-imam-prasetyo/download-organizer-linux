@@ -9,6 +9,7 @@ LOG_FILE="$LOG_DIR/organize-$(date '+%Y-%m').log"
 RENAME_MAP="$LOG_DIR/rename-map.csv"
 DRY_RUN=0
 MIN_AGE_MINUTES="${MIN_AGE_MINUTES:-10}"
+KEEP_LOGS_MONTHS="${KEEP_LOGS_MONTHS:-3}"
 
 usage() {
   cat <<'USAGE'
@@ -18,6 +19,7 @@ Options:
   --dry-run              Preview moves without changing files.
   --downloads-dir PATH   Override the Downloads folder. Default: ~/Downloads.
   --min-age-minutes N    Skip files modified in the last N minutes. Default: 10.
+  --keep-logs-months N   Delete logs older than N months. Default: 3. Set 0 to disable.
   -h, --help             Show this help.
 USAGE
 }
@@ -44,6 +46,14 @@ while [ "$#" -gt 0 ]; do
       MIN_AGE_MINUTES="$2"
       shift 2
       ;;
+    --keep-logs-months)
+      if [ "$#" -lt 2 ]; then
+        echo "Missing value for --keep-logs-months" >&2
+        exit 2
+      fi
+      KEEP_LOGS_MONTHS="$2"
+      shift 2
+      ;;
     -h|--help)
       usage
       exit 0
@@ -58,6 +68,11 @@ done
 
 if ! [[ "$MIN_AGE_MINUTES" =~ ^[0-9]+$ ]]; then
   echo "--min-age-minutes must be a non-negative integer" >&2
+  exit 2
+fi
+
+if ! [[ "$KEEP_LOGS_MONTHS" =~ ^[0-9]+$ ]]; then
+  echo "--keep-logs-months must be a non-negative integer" >&2
   exit 2
 fi
 
@@ -173,6 +188,21 @@ file_age_minutes() {
   echo $(((now - modified) / 60))
 }
 
+cleanup_old_logs() {
+  [ "$KEEP_LOGS_MONTHS" -eq 0 ] && return
+  local cutoff file_month log_file
+  cutoff="$(date -v-${KEEP_LOGS_MONTHS}m +%Y-%m)"
+  for log_file in "$LOG_DIR"/organize-*.log; do
+    [ -f "$log_file" ] || continue
+    file_month="$(basename "$log_file" .log)"
+    file_month="${file_month#organize-}"
+    if [[ "$file_month" < "$cutoff" ]]; then
+      rm "$log_file"
+      log "CLEANUP: removed old log $(basename "$log_file")"
+    fi
+  done
+}
+
 if [ ! -d "$DOWNLOADS_DIR" ]; then
   echo "Downloads directory not found: $DOWNLOADS_DIR" >&2
   exit 1
@@ -233,3 +263,5 @@ while IFS= read -r -d '' file; do
 done < <(find "$DOWNLOADS_DIR" -maxdepth 1 -type f -print0)
 
 log "Finished. candidates=$moved_count skipped=$skipped_count dry_run=$DRY_RUN"
+
+cleanup_old_logs
