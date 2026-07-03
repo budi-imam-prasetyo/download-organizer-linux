@@ -1,57 +1,129 @@
-#!/bin/bash
+#!/usr/bin/env bash
+# organize-downloads.sh — Linux-native Downloads folder organizer
+#
+# Moves files from the root of ~/Downloads into categorised subfolders
+# based on extension. Subfolders are created on demand.
+#
+# Usage:
+#   ./organize-downloads.sh [OPTIONS]
+#   ./organize-downloads.sh undo [--last N] [--dry-run]
+#
+# See --help for full option reference.
 
-set -u
+set -euo pipefail
 
-DOWNLOADS_DIR="${DOWNLOADS_DIR:-$HOME/Downloads}"
-PROJECT_DIR="$(cd "$(dirname "$0")" && pwd)"
-LOG_DIR="${LOG_DIR:-$PROJECT_DIR/logs}"
+# ---------------------------------------------------------------------------
+# Resolve script location (symlink-safe).
+# ---------------------------------------------------------------------------
+SCRIPT_PATH="$(readlink -f "$0")"
+SCRIPT_DIR="$(dirname "$SCRIPT_PATH")"
+
+# ---------------------------------------------------------------------------
+# Configurable defaults — all overridable via environment variables.
+# ---------------------------------------------------------------------------
+DOWNLOADS_DIR="${DOWNLOADS_DIR:-$(xdg-user-dir DOWNLOAD 2>/dev/null || printf '%s/Downloads' "$HOME")}"
+LOG_DIR="${LOG_DIR:-$SCRIPT_DIR/logs}"
+EXTENSIONS_CONF="${EXTENSIONS_CONF:-$SCRIPT_DIR/config/extensions.conf}"
+
+# Derived paths — not overridable individually (depend on LOG_DIR).
 LOG_FILE="$LOG_DIR/organize-$(date '+%Y-%m').log"
 RENAME_MAP="$LOG_DIR/rename-map.csv"
+
+# Runtime flags — set by argument parser below.
 DRY_RUN=0
+VERBOSE=0
 MIN_AGE_MINUTES="${MIN_AGE_MINUTES:-10}"
 KEEP_LOGS_MONTHS="${KEEP_LOGS_MONTHS:-3}"
 
+# Lock file — prevents concurrent runs.
+LOCK_FILE="${XDG_RUNTIME_DIR:-/tmp}/download-organizer-$(id -u).lock"
+
+# ---------------------------------------------------------------------------
+# Source libraries (order matters: core first, then routing, then undo).
+# ---------------------------------------------------------------------------
+# shellcheck source=lib/core.sh
+source "$SCRIPT_DIR/lib/core.sh"
+# shellcheck source=lib/routing.sh
+source "$SCRIPT_DIR/lib/routing.sh"
+# shellcheck source=lib/undo.sh
+source "$SCRIPT_DIR/lib/undo.sh"
+
+# ---------------------------------------------------------------------------
+# Usage
+# ---------------------------------------------------------------------------
 usage() {
-  cat <<'USAGE'
-Usage: ./organize-downloads.sh [--dry-run] [--downloads-dir PATH] [--min-age-minutes N]
+  cat <<'EOF'
+Usage:
+  organize-downloads.sh [OPTIONS]
+  organize-downloads.sh undo [--last N] [--dry-run] [--verbose]
+
+Subcommands:
+  undo           Reverse the last N "moved" actions (default: all).
 
 Options:
   --dry-run              Preview moves without changing files.
-  --downloads-dir PATH   Override the Downloads folder. Default: ~/Downloads.
+  --verbose              Print every skipped file (default: skips are silent).
+  --downloads-dir PATH   Override Downloads folder. Default: xdg-user-dir DOWNLOAD.
   --min-age-minutes N    Skip files modified in the last N minutes. Default: 10.
-  --keep-logs-months N   Delete logs older than N months. Default: 3. Set 0 to disable.
+  --keep-logs-months N   Rotate logs older than N months. Default: 3. Set 0 to disable.
+  --last N               (undo only) Reverse only the last N moved files.
   -h, --help             Show this help.
-USAGE
+
+Environment variables (lowest precedence):
+  DOWNLOADS_DIR          Same as --downloads-dir.
+  MIN_AGE_MINUTES        Same as --min-age-minutes.
+  KEEP_LOGS_MONTHS       Same as --keep-logs-months.
+  LOG_DIR                Override log directory. Default: <script_dir>/logs.
+  EXTENSIONS_CONF        Override extension config. Default: <script_dir>/config/extensions.conf.
+
+Examples:
+  organize-downloads.sh --dry-run
+  organize-downloads.sh --dry-run --verbose
+  organize-downloads.sh --downloads-dir /tmp/test-downloads
+  organize-downloads.sh undo --last 5 --dry-run
+EOF
 }
 
-while [ "$#" -gt 0 ]; do
+# ---------------------------------------------------------------------------
+# Argument parsing
+# ---------------------------------------------------------------------------
+SUBCOMMAND=""
+UNDO_LAST=0
+
+# Capture subcommand if present.
+if [[ "${1:-}" == "undo" ]]; then
+  SUBCOMMAND="undo"
+  shift
+fi
+
+while [[ "$#" -gt 0 ]]; do
   case "$1" in
     --dry-run)
       DRY_RUN=1
       shift
       ;;
+    --verbose)
+      VERBOSE=1
+      shift
+      ;;
     --downloads-dir)
-      if [ "$#" -lt 2 ]; then
-        echo "Missing value for --downloads-dir" >&2
-        exit 2
-      fi
+      [[ "$#" -lt 2 ]] && { printf 'Missing value for --downloads-dir\n' >&2; exit 2; }
       DOWNLOADS_DIR="$2"
       shift 2
       ;;
     --min-age-minutes)
-      if [ "$#" -lt 2 ]; then
-        echo "Missing value for --min-age-minutes" >&2
-        exit 2
-      fi
+      [[ "$#" -lt 2 ]] && { printf 'Missing value for --min-age-minutes\n' >&2; exit 2; }
       MIN_AGE_MINUTES="$2"
       shift 2
       ;;
     --keep-logs-months)
-      if [ "$#" -lt 2 ]; then
-        echo "Missing value for --keep-logs-months" >&2
-        exit 2
-      fi
+      [[ "$#" -lt 2 ]] && { printf 'Missing value for --keep-logs-months\n' >&2; exit 2; }
       KEEP_LOGS_MONTHS="$2"
+      shift 2
+      ;;
+    --last)
+      [[ "$#" -lt 2 ]] && { printf 'Missing value for --last\n' >&2; exit 2; }
+      UNDO_LAST="$2"
       shift 2
       ;;
     -h|--help)
@@ -59,209 +131,180 @@ while [ "$#" -gt 0 ]; do
       exit 0
       ;;
     *)
-      echo "Unknown option: $1" >&2
+      printf 'Unknown option: %s\n' "$1" >&2
       usage >&2
       exit 2
       ;;
   esac
 done
 
+# ---------------------------------------------------------------------------
+# Input validation
+# ---------------------------------------------------------------------------
 if ! [[ "$MIN_AGE_MINUTES" =~ ^[0-9]+$ ]]; then
-  echo "--min-age-minutes must be a non-negative integer" >&2
+  printf -- '--min-age-minutes must be a non-negative integer\n' >&2
   exit 2
 fi
 
 if ! [[ "$KEEP_LOGS_MONTHS" =~ ^[0-9]+$ ]]; then
-  echo "--keep-logs-months must be a non-negative integer" >&2
+  printf -- '--keep-logs-months must be a non-negative integer\n' >&2
   exit 2
 fi
 
-mkdir -p "$LOG_DIR"
-
-if [ ! -f "$RENAME_MAP" ]; then
-  printf 'timestamp,action,source,destination\n' > "$RENAME_MAP"
+if ! [[ "$UNDO_LAST" =~ ^[0-9]+$ ]]; then
+  printf -- '--last must be a non-negative integer\n' >&2
+  exit 2
 fi
 
-log() {
-  printf '%s %s\n' "$(date '+%Y-%m-%d %H:%M:%S')" "$*" | tee -a "$LOG_FILE"
-}
+# ---------------------------------------------------------------------------
+# Bootstrap: create log dir, initialise CSV.
+# ---------------------------------------------------------------------------
+mkdir -p "$LOG_DIR"
+init_rename_map
 
-csv_escape() {
-  printf '%s' "$1" | sed 's/"/""/g'
-}
-
-record_move() {
-  local action="$1"
-  local source="$2"
-  local destination="$3"
-  printf '"%s","%s","%s","%s"\n' \
-    "$(date '+%Y-%m-%d %H:%M:%S')" \
-    "$(csv_escape "$action")" \
-    "$(csv_escape "$source")" \
-    "$(csv_escape "$destination")" >> "$RENAME_MAP"
-}
-
-ensure_directories() {
-  mkdir -p \
-    "$DOWNLOADS_DIR/00 Baru - Inbox" \
-    "$DOWNLOADS_DIR/01 Images/png" \
-    "$DOWNLOADS_DIR/01 Images/jpg-jpeg" \
-    "$DOWNLOADS_DIR/01 Images/heic" \
-    "$DOWNLOADS_DIR/01 Images/gif-webp-avif" \
-    "$DOWNLOADS_DIR/02 Videos/mov" \
-    "$DOWNLOADS_DIR/02 Videos/mp4" \
-    "$DOWNLOADS_DIR/03 Documents/pdf" \
-    "$DOWNLOADS_DIR/03 Documents/docx" \
-    "$DOWNLOADS_DIR/03 Documents/csv" \
-    "$DOWNLOADS_DIR/04 Audio/mp3" \
-    "$DOWNLOADS_DIR/04 Audio/wav" \
-    "$DOWNLOADS_DIR/05 Design/psd" \
-    "$DOWNLOADS_DIR/05 Design/svg" \
-    "$DOWNLOADS_DIR/06 Installers/dmg" \
-    "$DOWNLOADS_DIR/06 Installers/pkg" \
-    "$DOWNLOADS_DIR/07 Misc/no-extension" \
-    "$DOWNLOADS_DIR/07 Misc/pkpass" \
-    "$DOWNLOADS_DIR/07 Misc/unknown"
-}
-
-destination_for_extension() {
-  local extension="$1"
-
-  case "$extension" in
-    png) echo "01 Images/png" ;;
-    jpg|jpeg) echo "01 Images/jpg-jpeg" ;;
-    heic) echo "01 Images/heic" ;;
-    gif|webp|avif) echo "01 Images/gif-webp-avif" ;;
-    mov) echo "02 Videos/mov" ;;
-    mp4) echo "02 Videos/mp4" ;;
-    pdf) echo "03 Documents/pdf" ;;
-    docx) echo "03 Documents/docx" ;;
-    csv) echo "03 Documents/csv" ;;
-    mp3) echo "04 Audio/mp3" ;;
-    wav) echo "04 Audio/wav" ;;
-    psd) echo "05 Design/psd" ;;
-    svg) echo "05 Design/svg" ;;
-    dmg) echo "06 Installers/dmg" ;;
-    pkg) echo "06 Installers/pkg" ;;
-    pkpass) echo "07 Misc/pkpass" ;;
-    "") echo "07 Misc/no-extension" ;;
-    *) echo "07 Misc/unknown" ;;
-  esac
-}
-
-safe_destination_path() {
-  local destination_dir="$1"
-  local filename="$2"
-  local base extension candidate counter
-
-  candidate="$destination_dir/$filename"
-  if [ ! -e "$candidate" ]; then
-    printf '%s\n' "$candidate"
-    return
-  fi
-
-  if [[ "$filename" == *.* && "$filename" != .* ]]; then
-    base="${filename%.*}"
-    extension=".${filename##*.}"
-  else
-    base="$filename"
-    extension=""
-  fi
-
-  counter=1
-  while true; do
-    candidate="$destination_dir/$base ($counter)$extension"
-    if [ ! -e "$candidate" ]; then
-      printf '%s\n' "$candidate"
-      return
-    fi
-    counter=$((counter + 1))
-  done
-}
-
-file_age_minutes() {
-  local file="$1"
-  local now modified
-
-  now="$(date +%s)"
-  modified="$(stat -f %m "$file")"
-  echo $(((now - modified) / 60))
-}
-
-cleanup_old_logs() {
-  [ "$KEEP_LOGS_MONTHS" -eq 0 ] && return
-  local cutoff file_month log_file
-  cutoff="$(date -v-${KEEP_LOGS_MONTHS}m +%Y-%m)"
-  for log_file in "$LOG_DIR"/organize-*.log; do
-    [ -f "$log_file" ] || continue
-    file_month="$(basename "$log_file" .log)"
-    file_month="${file_month#organize-}"
-    if [[ "$file_month" < "$cutoff" ]]; then
-      rm "$log_file"
-      log "CLEANUP: removed old log $(basename "$log_file")"
-    fi
-  done
-}
-
-if [ ! -d "$DOWNLOADS_DIR" ]; then
-  echo "Downloads directory not found: $DOWNLOADS_DIR" >&2
+# ---------------------------------------------------------------------------
+# Instance locking — prevent concurrent runs via flock.
+# The lock is released automatically when the script exits (fd 200 closes).
+# ---------------------------------------------------------------------------
+exec 200>"$LOCK_FILE"
+if ! flock -n 200; then
+  printf 'Another instance of organize-downloads is already running (lock: %s)\n' "$LOCK_FILE" >&2
   exit 1
 fi
 
-ensure_directories
+# ---------------------------------------------------------------------------
+# Undo subcommand — run and exit early.
+# ---------------------------------------------------------------------------
+if [[ "$SUBCOMMAND" == "undo" ]]; then
+  log_info "Starting undo (last=$UNDO_LAST dry_run=$DRY_RUN)"
+  run_undo "$UNDO_LAST"
+  exit 0
+fi
 
-if [ "$DRY_RUN" -eq 1 ]; then
-  log "Starting dry run for $DOWNLOADS_DIR"
+# ---------------------------------------------------------------------------
+# Validate downloads directory.
+# ---------------------------------------------------------------------------
+if [[ ! -d "$DOWNLOADS_DIR" ]]; then
+  die 1 "Downloads directory not found: $DOWNLOADS_DIR"
+fi
+
+# ---------------------------------------------------------------------------
+# Load extension map from config.
+# ---------------------------------------------------------------------------
+load_extension_map
+
+# ---------------------------------------------------------------------------
+# file_age_minutes FILE
+#   Returns the file's age in whole minutes using Linux stat (GNU coreutils).
+# ---------------------------------------------------------------------------
+file_age_minutes() {
+  local file="$1"
+  local now mtime
+  now="$(date +%s)"
+  mtime="$(stat -c '%Y' "$file")"   # GNU stat: %Y = mtime as epoch seconds
+  printf '%d\n' $(( (now - mtime) / 60 ))
+}
+
+# ---------------------------------------------------------------------------
+# cleanup_old_logs
+#   Remove monthly log files older than KEEP_LOGS_MONTHS.
+#   Skips when KEEP_LOGS_MONTHS=0.
+#   Uses GNU date: date -d "N months ago".
+# ---------------------------------------------------------------------------
+cleanup_old_logs() {
+  [[ "$KEEP_LOGS_MONTHS" -eq 0 ]] && return
+
+  local cutoff log_file file_month
+  cutoff="$(date -d "${KEEP_LOGS_MONTHS} months ago" '+%Y-%m')"
+
+  for log_file in "$LOG_DIR"/organize-*.log; do
+    [[ -f "$log_file" ]] || continue
+    file_month="$(basename "$log_file" .log)"
+    file_month="${file_month#organize-}"
+
+    # Validate format before comparing (guard against unexpected files).
+    if ! [[ "$file_month" =~ ^[0-9]{4}-[0-9]{2}$ ]]; then
+      continue
+    fi
+
+    # Lexicographic comparison works because YYYY-MM is ISO-sortable.
+    if [[ "$file_month" < "$cutoff" ]]; then
+      rm -- "$log_file"
+      log_info "CLEANUP removed old log: $(basename "$log_file")"
+    fi
+  done
+}
+
+# ---------------------------------------------------------------------------
+# Main processing loop
+# ---------------------------------------------------------------------------
+if [[ "$DRY_RUN" -eq 1 ]]; then
+  log_info "Starting dry-run for $DOWNLOADS_DIR (min_age=${MIN_AGE_MINUTES}m)"
 else
-  log "Starting organizer for $DOWNLOADS_DIR"
+  log_info "Starting organizer for $DOWNLOADS_DIR (min_age=${MIN_AGE_MINUTES}m)"
 fi
 
 moved_count=0
 skipped_count=0
 
+# find -maxdepth 1 -type f: only plain files at root level.
+# -print0 / read -d '': safe against filenames with spaces, newlines, tabs.
 while IFS= read -r -d '' file; do
-  filename="$(basename "$file")"
+  filename="$(basename -- "$file")"
 
-  if [ ! -f "$file" ]; then
-    skipped_count=$((skipped_count + 1))
-    continue
-  fi
-
+  # Skip dotfiles (.gitkeep, .DS_Store, etc.).
   if [[ "$filename" == .* ]]; then
-    log "SKIP hidden file: $filename"
-    skipped_count=$((skipped_count + 1))
+    log_verbose "SKIP dotfile: $filename"
+    skipped_count=$(( skipped_count + 1 ))
     continue
   fi
 
+  # Skip partial downloads — never move an in-progress file.
+  if is_partial_download "$filename"; then
+    log_verbose "SKIP partial: $filename"
+    skipped_count=$(( skipped_count + 1 ))
+    continue
+  fi
+
+  # Skip files too recently modified (still downloading / being written).
   age="$(file_age_minutes "$file")"
-  if [ "$age" -lt "$MIN_AGE_MINUTES" ]; then
-    log "SKIP recent file: $filename (${age}m old)"
-    skipped_count=$((skipped_count + 1))
+  if [[ "$age" -lt "$MIN_AGE_MINUTES" ]]; then
+    log_verbose "SKIP recent: $filename (${age}m old, threshold=${MIN_AGE_MINUTES}m)"
+    skipped_count=$(( skipped_count + 1 ))
     continue
   fi
 
-  if [[ "$filename" == *.* && "$filename" != .* ]]; then
-    extension="$(printf '%s' "${filename##*.}" | tr '[:upper:]' '[:lower:]')"
-  else
-    extension=""
+  # Resolve destination.
+  relative_dir="$(destination_for "$filename")"
+  dest_dir="$DOWNLOADS_DIR/$relative_dir"
+  dest_path="$(safe_dest_path "$dest_dir" "$filename")"
+
+  # Skip files routing to "partial" (shouldn't reach here, belt-and-suspenders).
+  if [[ "$relative_dir" == "07 Misc/partial" ]]; then
+    log_verbose "SKIP partial (routing): $filename"
+    skipped_count=$(( skipped_count + 1 ))
+    continue
   fi
 
-  relative_dir="$(destination_for_extension "$extension")"
-  destination_dir="$DOWNLOADS_DIR/$relative_dir"
-  destination_path="$(safe_destination_path "$destination_dir" "$filename")"
-
-  if [ "$DRY_RUN" -eq 1 ]; then
-    log "DRY-RUN move: $file -> $destination_path"
-    record_move "dry-run" "$file" "$destination_path"
+  if [[ "$DRY_RUN" -eq 1 ]]; then
+    log_dryrun "MOVE $file → $dest_path"
+    record_move "dry-run" "$file" "$dest_path"
   else
-    mv "$file" "$destination_path"
-    log "MOVED: $file -> $destination_path"
-    record_move "moved" "$file" "$destination_path"
+    ensure_dest_dir "$dest_dir"
+    if mv -- "$file" "$dest_path"; then
+      log_info "MOVED $file → $dest_path"
+      record_move "moved" "$file" "$dest_path"
+    else
+      log_error "mv failed: $file → $dest_path"
+      skipped_count=$(( skipped_count + 1 ))
+      continue
+    fi
   fi
 
-  moved_count=$((moved_count + 1))
+  moved_count=$(( moved_count + 1 ))
+
 done < <(find "$DOWNLOADS_DIR" -maxdepth 1 -type f -print0)
 
-log "Finished. candidates=$moved_count skipped=$skipped_count dry_run=$DRY_RUN"
+log_info "Finished: candidates=$moved_count skipped=$skipped_count dry_run=$DRY_RUN"
 
 cleanup_old_logs

@@ -1,5 +1,3 @@
-*.plist
 logs/*.log
 logs/*.csv
-.DS_Store
 .vscode/

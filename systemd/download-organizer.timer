@@ -1,0 +1,19 @@
+[Unit]
+Description=Daily trigger for Download Organizer
+Requires=download-organizer.service
+
+[Timer]
+# Fire every day at 06:00 local time.
+OnCalendar=*-*-* 06:00:00
+
+# If the system was off at 06:00, run as soon as possible after boot.
+Persistent=true
+
+# Spread the actual start time up to 2 minutes after 06:00 to avoid
+# hammering disk I/O at the exact same second on multiple machines.
+RandomizedDelaySec=120
+
+Unit=download-organizer.service
+
+[Install]
+WantedBy=timers.target
