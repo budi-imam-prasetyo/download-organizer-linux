@@ -1,6 +1,6 @@
 [Unit]
 Description=Download Organizer — sort ~/Downloads by file type
-Documentation=file://%h/Projects/download-organizer/README.md
+Documentation=file://%h/Projects/download-organizer-linux/README.md
 # Only run when the user session is active (home directory is mounted).
 After=default.target
 
@@ -9,8 +9,8 @@ Type=oneshot
 
 # Resolve the script path relative to this unit's location.
 # %h expands to the user's home directory.
-# Edit this path to match where you cloned the repository.
-ExecStart=%h/Projects/download-organizer/organize-downloads.sh
+# Edit this path only if you cloned the repository somewhere else.
+ExecStart=%h/Projects/download-organizer-linux/organize-downloads.sh
 
 # Stream stdout/stderr to journald with an identifier.
 # Query with: journalctl --user -u download-organizer -f
@@ -21,7 +21,7 @@ SyslogIdentifier=download-organizer
 # Harden the service: restrict write access to home only.
 ProtectSystem=strict
 ProtectHome=read-only
-ReadWritePaths=%h/Downloads %h/Projects/download-organizer/logs
+ReadWritePaths=%h/Downloads %h/Projects/download-organizer-linux/logs
 
 # Do not restart on failure — this is a scheduled one-shot.
 Restart=no

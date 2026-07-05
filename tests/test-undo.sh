@@ -31,8 +31,12 @@ init_rename_map
 # ---------------------------------------------------------------------------
 csv_row() {
   local action="$1" src="$2" dst="$3"
+  local esc_action esc_src esc_dst
+  esc_action="${action//\"/\"\"}"
+  esc_src="${src//\"/\"\"}"
+  esc_dst="${dst//\"/\"\"}"
   printf '"%s","%s","%s","%s"\n' \
-    "$(date '+%Y-%m-%d %H:%M:%S')" "$action" "$src" "$dst" >> "$RENAME_MAP"
+    "$(date '+%Y-%m-%d %H:%M:%S')" "$esc_action" "$esc_src" "$esc_dst" >> "$RENAME_MAP"
 }
 
 # ---------------------------------------------------------------------------
@@ -51,6 +55,24 @@ csv_row "moved" "$SRC" "$DST"
 run_undo 0   # undo all
 
 assert_true $([ -f "$SRC" ]; echo $?)
+
+# ---------------------------------------------------------------------------
+# Test 1b: quoted CSV fields round-trip correctly through the parser.
+# ---------------------------------------------------------------------------
+begin "undo: quoted CSV fields with embedded double-quotes are parsed"
+
+rm -f "$RENAME_MAP"; init_rename_map
+
+SRC_QUOTED="$TMPDIR_UNDO/original\"quote.pdf"
+DST_QUOTED="$TMPDIR_UNDO/04 Documents/pdf/original\"quote.pdf"
+mkdir -p "$(dirname "$DST_QUOTED")"
+
+printf 'content' > "$DST_QUOTED"
+csv_row "moved" "$SRC_QUOTED" "$DST_QUOTED"
+
+run_undo 0
+
+assert_true $([ -f "$SRC_QUOTED" ]; echo $?)
 
 # ---------------------------------------------------------------------------
 # Test 2: file at destination is gone — undo should skip, not fail.

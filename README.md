@@ -1,10 +1,10 @@
-# download-organizer
+# Download-Organizer-Linux
 
 [![Baca dalam Bahasa Indonesia](https://img.shields.io/badge/Dokumentasi-Bahasa%20Indonesia-blue?style=flat-square)](README.id.md)
 
 A Linux-native bash script that automatically sorts files in your Downloads folder into categorised subfolders based on file extension.
 
-This project is forked from the original macOS implementation, [download-organizer](https://github.com/m4sbay/download-organizer?utm_source=chatgpt.com). It removes all macOS-specific tooling and has been rewritten from the ground up for modern Linux distributions (Arch, CachyOS, Fedora, Ubuntu, Debian, and openSUSE).
+This project is forked from the original macOS implementation, [download-organizer-mac](https://github.com/m4sbay/download-organizer?utm_source=chatgpt.com). It removes all macOS-specific tooling and has been rewritten from the ground up for modern Linux distributions (Arch, Fedora, Ubuntu, Debian, and openSUSE).
 
 ---
 
@@ -60,20 +60,21 @@ Downloads/
 │   ├── appimage/
 │   ├── iso/
 │   └── ...
-├── 07 Design/
+├── 07 Misc/
+│   ├── no-extension/
+│   ├── unknown/
+│   └── partial/
+├── 08 Design/
 │   ├── svg/
 │   ├── photoshop/
 │   └── ...
-├── 08 Code/
+├── 09 Code/
 │   ├── scripts/
 │   ├── python/
 │   └── ...
-├── 09 Fonts/
-├── 10 Certs/
-└── 07 Misc/
-    ├── no-extension/
-    ├── unknown/
-    └── partial/       ← in-progress downloads land here if somehow leaked
+├── 10 Fonts/
+└── 11 Certs/
+
 ```
 
 Full extension list: see `config/extensions.conf`.
@@ -94,10 +95,12 @@ All requirements are present by default on Arch, CachyOS, Fedora, Ubuntu, Debian
 ## Setup
 
 ```sh
-git clone https://github.com/budi-imam-prasetyo/download-organizer
-cd download-organizer
+git clone https://github.com/budi-imam-prasetyo/download-organizer-linux
+cd download-organizer-linux
 chmod +x organize-downloads.sh tests/run-tests.sh
 ```
+
+Arch package users can also install the packaged script, documentation, and user units from the included `PKGBUILD`. The packaged command is `/usr/bin/download-organizer-linux`, and the editable config file is `/etc/download-organizer/extensions.conf`.
 
 Run the test suite to verify everything works on your system:
 
@@ -206,9 +209,19 @@ Rules:
 
 The `systemd/` directory contains a user service and timer that run the organizer daily at 06:00. If the machine was off at 06:00, the timer catches up on next boot.
 
+When installed from the Arch package, the user units are placed in `/usr/lib/systemd/user/` and are not enabled automatically. The packaged service runs `/usr/bin/download-organizer-linux`, uses `/etc/download-organizer/extensions.conf` when present, and falls back to the shipped default config under `/usr/share/download-organizer/config/extensions.conf`.
+
 ### Install
 
-Edit `systemd/download-organizer.service` and update the `ExecStart` path to match where you cloned the repo. Then:
+If you are running the repository directly, edit `systemd/download-organizer.service` only if you cloned the repo somewhere other than `~/Projects/download-organizer-linux`. Then:
+
+If you installed the package, enable the packaged timer instead:
+
+```sh
+systemctl --user enable --now download-organizer.timer
+```
+
+For a source checkout, copy the units to your user systemd directory:
 
 ```sh
 # Copy units to the user systemd directory.

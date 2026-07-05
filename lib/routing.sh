@@ -98,6 +98,7 @@ is_partial_download() {
 destination_for() {
   local filename="$1"
   local ext=""
+  local lower_filename="${filename,,}"
 
   # Partial downloads are identified before extension routing.
   if is_partial_download "$filename"; then
@@ -105,19 +106,24 @@ destination_for() {
     return
   fi
 
-  # Extract extension: handle dotfiles (no extension) and plain names.
-  if [[ "$filename" == *.* && "$filename" != .* ]]; then
-    ext="${filename##*.}"
-    ext="${ext,,}"   # lowercase
+  # Extract the longest configured extension suffix.
+  # This supports compound extensions such as pkg.tar.zst before falling
+  # back to the last dot segment.
+  if [[ "$lower_filename" == *.* && "$lower_filename" != .* ]]; then
+    ext="${lower_filename#*.}"
+    while true; do
+      if [[ -n "${EXT_MAP[$ext]+set}" ]]; then
+        printf '%s\n' "${EXT_MAP[$ext]}"
+        return
+      fi
+
+      [[ "$ext" != *.* ]] && break
+      ext="${ext#*.}"
+    done
   fi
 
   if [[ -z "$ext" ]]; then
     printf '%s\n' "07 Misc/no-extension"
-    return
-  fi
-
-  if [[ -n "${EXT_MAP[$ext]+set}" ]]; then
-    printf '%s\n' "${EXT_MAP[$ext]}"
     return
   fi
 

@@ -1,3 +1,24 @@
+# makepkg
+pkg/
+src/
+*.pkg.tar.zst
+*.pkg.tar.xz
+*.pkg.tar.gz
+
+# AUR
+*.tar
+*.tar.gz
+
+# Logs
 logs/*.log
 logs/*.csv
+
+# Editor
 .vscode/
+.idea/
+
+# Shell
+*.swp
+
+# Sementara
+.SRCINFO 

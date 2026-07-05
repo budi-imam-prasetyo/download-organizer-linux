@@ -41,15 +41,17 @@ _undo_parse_csv() {
     [[ "$line_no" -eq 1 ]] && continue
     # Skip blank lines.
     [[ -z "$raw" ]] && continue
+    raw="${raw%$'\r'}"
 
     # Strip surrounding quotes from each field (RFC 4180 quoted CSV).
     # Pattern: "val","val","val","val"
-    # Use parameter expansion to peel the four quoted fields.
-    if [[ "$raw" =~ ^\"([^\"]*)\"[,]\"([^\"]*)\"[,]\"(.*)\",\"(.*)\"$ ]]; then
+    # Allow doubled quotes inside each field by matching repeated "" or
+    # non-quote characters, then unescape after capture.
+    if [[ "$raw" =~ ^\"((\"\"|[^\"])*)\",\"((\"\"|[^\"])*)\",\"((\"\"|[^\"])*)\",\"((\"\"|[^\"])*)\"$ ]]; then
       ts="${BASH_REMATCH[1]}"
-      action="${BASH_REMATCH[2]}"
-      src="${BASH_REMATCH[3]}"
-      dst="${BASH_REMATCH[4]}"
+      action="${BASH_REMATCH[3]}"
+      src="${BASH_REMATCH[5]}"
+      dst="${BASH_REMATCH[7]}"
 
       # Unescape doubled double-quotes → single double-quote.
       ts="${ts//\"\"/\"}"

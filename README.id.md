@@ -1,10 +1,10 @@
-# download-organizer
+# Download-Organizer-Linux
 
 [![Read in English](https://img.shields.io/badge/Documentation-English-blue?style=flat-square)](README.md)
 
 Script bash Linux-native yang secara otomatis mengurutkan file di folder Downloads ke dalam subfolder berdasarkan ekstensi file.
 
-Proyek ini merupakan fork dari implementasi macOS asli, [download-organizer](https://github.com/m4sbay/download-organizer?utm_source=chatgpt.com). Seluruh komponen yang bergantung pada macOS telah dihapus, kemudian proyek ini ditulis ulang dari awal agar berjalan secara native pada distribusi Linux modern seperti Arch, CachyOS, Fedora, Ubuntu, Debian, dan openSUSE.
+Proyek ini merupakan fork dari implementasi macOS asli, [download-organizer-mac](https://github.com/m4sbay/download-organizer?utm_source=chatgpt.com). Seluruh komponen yang bergantung pada macOS telah dihapus, kemudian proyek ini ditulis ulang dari awal agar berjalan secara native pada distribusi Linux modern seperti Arch, Fedora, Ubuntu, Debian, dan openSUSE.
 
 ---
 
@@ -60,20 +60,20 @@ Downloads/
 │   ├── appimage/
 │   ├── iso/
 │   └── ...
-├── 07 Design/
+├── 07 Misc/
+│   ├── no-extension/
+│   ├── unknown/
+│   └── partial/
+├── 08 Design/
 │   ├── svg/
 │   ├── photoshop/
 │   └── ...
-├── 08 Code/
+├── 09 Code/
 │   ├── scripts/
 │   ├── python/
 │   └── ...
-├── 09 Fonts/
-├── 10 Certs/
-└── 07 Misc/
-    ├── no-extension/
-    ├── unknown/
-    └── partial/       ← file yang masih dalam proses download masuk sini jika bocor
+├── 10 Fonts/
+└── 11 Certs/
 ```
 
 Daftar ekstensi lengkap: lihat `config/extensions.conf`.
@@ -94,10 +94,12 @@ Semua persyaratan ini sudah tersedia secara default di Arch, CachyOS, Fedora, Ub
 ## Setup
 
 ```sh
-git clone https://github.com/budi-imam-prasetyo/download-organizer
-cd download-organizer
+git clone https://github.com/budi-imam-prasetyo/download-organizer-linux
+cd download-organizer-linux
 chmod +x organize-downloads.sh tests/run-tests.sh
 ```
+
+Untuk pengguna paket Arch, script, dokumentasi, dan unit user systemd juga dipasang melalui `PKGBUILD` yang disertakan. Perintah yang terpasang adalah `/usr/bin/download-organizer-linux`, dan file konfigurasi yang bisa diedit ada di `/etc/download-organizer/extensions.conf`.
 
 Jalankan test suite untuk memverifikasi semuanya berjalan normal di sistem kamu:
 
@@ -206,9 +208,19 @@ Aturan:
 
 Direktori `systemd/` berisi user service dan timer yang menjalankan organizer setiap hari pukul 06:00. Jika mesin sedang mati saat jadwal itu tiba, timer akan mengejar dan menjalankannya saat boot berikutnya.
 
+Jika dipasang dari paket Arch, unit user akan berada di `/usr/lib/systemd/user/` dan tidak di-enable otomatis. Service yang dipaketkan menjalankan `/usr/bin/download-organizer-linux`, memakai `/etc/download-organizer/extensions.conf` bila ada, lalu fallback ke config bawaan di `/usr/share/download-organizer/config/extensions.conf`.
+
 ### Install
 
-Edit `systemd/download-organizer.service` dan perbarui path `ExecStart` sesuai lokasi repo yang kamu clone. Kemudian:
+Jika kamu menjalankan repository langsung dari source, edit `systemd/download-organizer.service` hanya bila kamu meng-clone repo ke lokasi selain `~/Projects/download-organizer-linux`. Kemudian:
+
+Jika kamu memasang paketnya, aktifkan timer yang sudah dipasang:
+
+```sh
+systemctl --user enable --now download-organizer.timer
+```
+
+Untuk checkout source, salin unit ke direktori systemd user:
 
 ```sh
 # Salin unit ke direktori systemd user.

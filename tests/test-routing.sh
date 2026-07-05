@@ -119,6 +119,9 @@ assert_eq "06 Installers/deb" "$(destination_for "package.deb")"
 begin "destination_for: AppImage"
 assert_eq "06 Installers/appimage" "$(destination_for "App.AppImage")"
 
+begin "destination_for: pkg.tar.zst compound extension"
+assert_eq "06 Installers/pkg-tar" "$(destination_for "archlinux.pkg.tar.zst")"
+
 begin "destination_for: iso"
 assert_eq "06 Installers/iso" "$(destination_for "ubuntu.iso")"
 
@@ -127,6 +130,9 @@ assert_eq "06 Installers/iso" "$(destination_for "ubuntu.iso")"
 # ---------------------------------------------------------------------------
 begin "destination_for: no extension"
 assert_eq "07 Misc/no-extension" "$(destination_for "Makefile")"
+
+begin "destination_for: misc binary downloads stay under 07 Misc"
+assert_eq "07 Misc/unknown" "$(destination_for "OfficeSetup.exe")"
 
 begin "destination_for: unknown extension"
 assert_eq "07 Misc/unknown" "$(destination_for "weird.xyz123")"
